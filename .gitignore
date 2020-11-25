@@ -1,0 +1,17 @@
+artifacts/
+build/contracts
+contracts/*.json
+
+node_modules
+.env
+.idea
+
+build/
+
+.DS_Store
+
+node_modules
+
+#Hardhat files
+cache
+artifacts
