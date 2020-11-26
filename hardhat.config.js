@@ -1,5 +1,6 @@
 require("dotenv").config();
 require("@nomiclabs/hardhat-waffle");
+require('@openzeppelin/hardhat-upgrades');
 
 const privateKey = process.env.PRIVATE_KEY;
 const infuraKey = process.env.INFURA_KEY;
