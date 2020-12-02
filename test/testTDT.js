@@ -30,11 +30,20 @@ describe("TDT Token", function () {
         const beforeTransferSupply = (await TDT.totalSupply()).toString();
         expect(beforeTransferSupply, ethers.utils.parseEther(mintAmount));
 
+        console.log("before transfer, scalingFactor is:", (await TDT.scalingFactor()).toString());
         console.log("before transfer, user2 balance is:", (await TDT.balanceOf(user2.address)).toString(), "\n");
         console.log("user1 will transfer token to user2: ", transferAmount);
+
         await TDT.connect(user1).transfer(user2.address, ethers.utils.parseEther(transferAmount));
-        console.log("after transfer, user1 balance is:", (await TDT.balanceOf(user1.address)).toString(), "\n");
-        console.log("after transfer, user2 balance is:", (await TDT.balanceOf(user2.address)).toString(), "\n");
+
+        console.log("after transfer, scalingFactor is:", (await TDT.scalingFactor()).toString());
+        let afterTransferUser1Balance = await TDT.balanceOf(user1.address);
+        console.log("after transfer, user1 balance is:", (afterTransferUser1Balance).toString(), "\n");
+        let afterTransferUser2Balance = await TDT.balanceOf(user2.address);
+        // let afterTransferUser2Balance = await TDT.balanceOfUnderlying(user2.address);
+        console.log("after transfer, user2 balance is:", (afterTransferUser2Balance).toString(), "\n");
+        console.log("after transfer, user2 underlying balance is:", (await TDT.balanceOfUnderlying(user2.address)).toString(), "\n");
+        console.log("user1 + user2", (afterTransferUser1Balance.add(afterTransferUser2Balance)).toString());
 
         // Cause transfer amount is 1000, so burn rate is 3%
         // TODO: use bignumber

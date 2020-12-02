@@ -123,46 +123,47 @@ contract TDTToken is Initializable, OwnableUpgradeable, IERC20Upgradeable, Reent
         return rmul(_totalSupply, scalingFactor);
     }
 
-    function _rebase(uint256 amount) internal {
+    /**
+     * @dev Distributes transaction fee by increasing the sccaling factor.
+     */
+    function _rebase(uint256 underlyingFeeValue) internal {
         uint256 currentSupply = _totalSupply;
-        // Get amount in underlying.
-        uint256 underlyingValue = _fragmentToUnderlying(amount);
-        scalingFactor = scalingFactor.add(rdiv(underlyingValue, currentSupply));
+
+        scalingFactor = scalingFactor.add(rdiv(underlyingFeeValue, currentSupply));
     }
 
     /**
-     * @dev Hook that is called before any transfer of tokens, at here, we would like to
-     *      burn token and charge fee when `_transfer()`
+     * @dev Hook that calculates how many tokens will be burned and charged based on `transferAmount`.
      */
-    function _afterTransfer(address from, uint256 amount) internal returns (bool) {
+    function _beforeTransfer(uint256 transferAmount) internal returns (uint256, uint256) {
         uint256 currentSupply = _totalSupply;
         uint256 burnAmount;
-        require(amount <= currentSupply, "_afterTransfer: Too much to transfer!");
-
-        /**
-         * Cause tx fee is the same as burn fee, so just use the same variable.
-         */
+        // Cause tx fee is the same as burn fee, so just use the same variable.
         // If 7,000 < total supply <= 10,000, burn fee is 3%, tx fee is 3%
         if (currentSupply > thresholdOne) {
-            burnAmount = amount.mul(3).div(100);
+            burnAmount = transferAmount.mul(3).div(100);
         } else if (currentSupply > thresholdTwo) {
             // If 4,000 < total supply <= 7,000, burn fee is 4%, tx fee is 4%
-            burnAmount = amount.mul(4).div(100);
+            burnAmount = transferAmount.mul(4).div(100);
         } else if (currentSupply > thresholdThree) {
             // If 300 < total supply <= 4,000, burn fee is 5%, tx fee is 5%
-            burnAmount = amount.mul(5).div(100);
+            burnAmount = transferAmount.mul(5).div(100);
         } else {
             // if total supply <= 300, no burn fee, but tx fee is 3%
-            burnAmount = amount.mul(3).div(100);
-            _burn(from, burnAmount);
-            _rebase(burnAmount);
+            burnAmount = transferAmount.mul(3).div(100);
 
-            return true;
+            return (0, burnAmount);
         }
-        _burn(from, burnAmount.mul(2));
-        _rebase(burnAmount);
 
-        return true;
+        return (burnAmount, burnAmount);
+    }
+
+    /**
+     * @dev Hook that is called to subtract burn fee and transaction fee from total supply.
+     */
+    function _afterTransfer(uint256 burnAmount, uint256 feeAmount) internal {
+        _totalSupply = _totalSupply.sub(burnAmount).sub(feeAmount);
+        _rebase(feeAmount);
     }
 
     /**
@@ -178,13 +179,24 @@ contract TDTToken is Initializable, OwnableUpgradeable, IERC20Upgradeable, Reent
 
         // Get amount in underlying
         uint256 underlyingValue = _fragmentToUnderlying(amount);
+
+        // Calculates the amount of burning and charging.
+        (uint256 burnAmount, uint256 feeAmount) = _beforeTransfer(amount);
+
+        // Burn fee is the same as charging fee, and transfer fee will not be zero, so just calculate
+        // the charging fee, and convert it to underlying balance.
+        uint256 underlyingFeeValue = _fragmentToUnderlying(feeAmount);
+
+        // transfer amount - charge fee - burn fee.
+        uint256 actualTransferAmount = underlyingValue.sub(underlyingFeeValue).sub(underlyingFeeValue);
+
         // Transfer token from sender to recipient.
         _balances[sender] = _balances[sender].sub(underlyingValue, "_transfer: transfer amount exceeds balance");
-        _balances[recipient] = _balances[recipient].add(underlyingValue);
+        _balances[recipient] = _balances[recipient].add(actualTransferAmount);
         emit Transfer(sender, recipient, underlyingValue);
 
         // Burn token and charge fee.
-        _afterTransfer(sender, amount);
+        _afterTransfer(burnAmount, feeAmount);
     }
 
     /**
