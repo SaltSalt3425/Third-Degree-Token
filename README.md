@@ -10,3 +10,5 @@ The TDT(Third-Degree-Token) token contract is derived from the standard ERC20 to
    - When `300 < total supply <= 4000`, the fee of burning is 5% and the fee of the transaction is 5%;
 
    - When `total supply <= 300`, there is no fee when burning, and the fee of the transaction is 3%;
+
+2. For the transaction fee, distribute 45% to token holders, 45% to LP(ETH-TDT) holders and 5% to developers.
