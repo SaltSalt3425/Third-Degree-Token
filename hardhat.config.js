@@ -1,5 +1,7 @@
 require("dotenv").config();
 require("@nomiclabs/hardhat-waffle");
+require("@nomiclabs/hardhat-ethers");
+require("@nomiclabs/hardhat-etherscan");
 require('@openzeppelin/hardhat-upgrades');
 
 const privateKey = process.env.PRIVATE_KEY;
@@ -36,6 +38,9 @@ module.exports = {
         runs: 2000,
       },
     },
+  },
+  etherscan: {
+    apiKey: process.env.ETHERSCAN_KEY,
   },
 };
 
