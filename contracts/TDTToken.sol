@@ -5,6 +5,7 @@ import "@openzeppelin/contracts-upgradeable/math/SafeMathUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import "./interface/IERC20Upgradeable.sol";
+import "./UniswapV2/interfaces/IUniswapV2Pair.sol";
 // TODO: only for debug
 import "hardhat/console.sol";
 
@@ -24,11 +25,18 @@ contract TDTToken is Initializable, OwnableUpgradeable, IERC20Upgradeable, Reent
     mapping (address => mapping (address => uint256)) internal _allowances;
 
     uint256 internal _totalSupply;
-    uint256 public initSupply;
 
     string public name;
     string public symbol;
     uint8 public decimals;
+
+    address public feeRecipient;        // For developer.
+    uint256 public feeRecipientRate;    // 5%
+    uint256 public tokenHoldersRate;    // 47.5%
+    uint256 public LPHoldersRate;       // 47.5%
+
+    // List of uniswap pairs to sync.
+    address[] public uniSyncPairs;
 
     //-------------------------------
     //------------ Events -----------
@@ -43,7 +51,11 @@ contract TDTToken is Initializable, OwnableUpgradeable, IERC20Upgradeable, Reent
      */
     function initialize(
         string memory name_,
-        string memory symbol_
+        string memory symbol_,
+        address feeRecipient_,
+        uint256 feeRecipientRate_,
+        uint256 tokenHoldersRate_,
+        uint256 LPHoldersRate_
     ) external initializer {
         __Ownable_init();
         __ReentrancyGuard_init();
@@ -51,7 +63,10 @@ contract TDTToken is Initializable, OwnableUpgradeable, IERC20Upgradeable, Reent
         name = name_;
         symbol = symbol_;
         decimals = 18;
-        initSupply = 0;
+        feeRecipient = feeRecipient_;
+        feeRecipientRate = feeRecipientRate_;
+        tokenHoldersRate = tokenHoldersRate_;
+        LPHoldersRate = LPHoldersRate_;
     }
 
     //-------------------------------
@@ -78,10 +93,10 @@ contract TDTToken is Initializable, OwnableUpgradeable, IERC20Upgradeable, Reent
      * @notice Computes the current max scaling factor.
      */
     function _maxScalingFactor() internal view returns (uint256) {
-        // scaling factor can only go up to 2**256-1 = initSupply * scalingFactor
+        // scaling factor can only go up to 2**256-1 = _totalSupply * scalingFactor
         // this is used to check if scalingFactor will be too high to compute balances when
         // distrubte tx fee automatically.
-        return uint256(-1) / initSupply;
+        return uint256(-1) / _totalSupply;
     }
 
     // function rdivup(uint256 x, uint256 y) internal pure returns (uint256 z) {
@@ -94,9 +109,6 @@ contract TDTToken is Initializable, OwnableUpgradeable, IERC20Upgradeable, Reent
      * @return The balance of the specified address.
      */
     function balanceOf(address who) external view override returns (uint256) {
-        console.log("msg.sender is", who);
-        console.log("msg.sender balance is", _balances[who]);
-        console.log("scalingFactor is", scalingFactor);
         return _underlyingToFragment(_balances[who]);
     }
 
@@ -130,6 +142,11 @@ contract TDTToken is Initializable, OwnableUpgradeable, IERC20Upgradeable, Reent
         uint256 currentSupply = _totalSupply;
 
         scalingFactor = scalingFactor.add(rdiv(underlyingFeeValue, currentSupply));
+
+        // Updates uniswap pairs.
+        for (uint256 i = 0; i < uniSyncPairs.length; i++) {
+            IUniswapV2Pair(uniSyncPairs[i]).sync();
+        }
     }
 
     /**
@@ -155,6 +172,7 @@ contract TDTToken is Initializable, OwnableUpgradeable, IERC20Upgradeable, Reent
             return (0, burnAmount);
         }
 
+        // burnAmount, txFee
         return (burnAmount, burnAmount);
     }
 
@@ -224,7 +242,11 @@ contract TDTToken is Initializable, OwnableUpgradeable, IERC20Upgradeable, Reent
         uint256 amount
     ) public override returns (bool) {
         _transfer(sender, recipient, amount);
-        _approve(sender, msg.sender, _allowances[sender][msg.sender].sub(amount, "transferFrom: transfer amount exceeds allowance"));
+        _approve(
+            sender,
+            msg.sender,
+            _allowances[sender][msg.sender].sub(amount, "transferFrom: transfer amount exceeds allowance")
+        );
         return true;
     }
 
@@ -245,6 +267,39 @@ contract TDTToken is Initializable, OwnableUpgradeable, IERC20Upgradeable, Reent
      */
     function mint(address account, uint256 amount) external onlyOwner {
         _mint(account, amount);
+    }
+
+    /**
+     * @dev Uniswap synced pairs.
+     *
+     */
+    function getUniSyncPairs() public view returns (address[] memory) {
+        address[] memory pairs = uniSyncPairs;
+        return pairs;
+    }
+
+    /**
+     * @dev Adds pairs to sync.
+     *
+     */
+    function addSyncPairs(
+        address[] memory uniSyncPairs_
+    ) public onlyOwner {
+        for (uint256 i = 0; i < uniSyncPairs_.length; i++) {
+            uniSyncPairs.push(uniSyncPairs_[i]);
+        }
+    }
+
+    function removeUniPair(uint256 index) public onlyOwner {
+        if (index >= uniSyncPairs.length) return;
+
+        uint256 totalUniPairs = uniSyncPairs.length;
+
+        for (uint256 i = index; i < totalUniPairs - 1; i++) {
+            uniSyncPairs[i] = uniSyncPairs[i + 1];
+        }
+        // uniSyncPairs.length--;
+        delete uniSyncPairs[totalUniPairs.sub(1)];
     }
 
     function _mint(address to, uint256 amount) internal {
@@ -308,7 +363,10 @@ contract TDTToken is Initializable, OwnableUpgradeable, IERC20Upgradeable, Reent
      * @dev Atomically decreases the allowance granted to `spender` by the caller.
      */
     function decreaseAllowance(address spender, uint256 subtractedValue) public virtual returns (bool) {
-        _approve(msg.sender, spender, _allowances[msg.sender][spender].sub(subtractedValue, "decreaseAllowance: decreased allowance below zero"));
+        _approve(
+            msg.sender,
+            spender,
+            _allowances[msg.sender][spender].sub(subtractedValue, "decreaseAllowance: decreased allowance below zero"));
         return true;
     }
 }
